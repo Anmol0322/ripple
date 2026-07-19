@@ -57,7 +57,7 @@ export default function App() {
   const [activeRoomId, setActiveRoomId] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Synchronizers & Loaders
 

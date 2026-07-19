@@ -11,6 +11,7 @@ import {
   MoreVertical,
   Trash2,
   UserMinus,
+  Menu,
 } from "lucide-react";
 import { Message, Room } from "../types";
 
@@ -22,6 +23,7 @@ interface ChatAreaProps {
   onSendMessage: (text: string, replyToId?: string) => Promise<void>;
   onDeleteConversation?: (roomId: string) => Promise<void>;
   onRemoveFriend?: (roomId: string) => Promise<void>;
+  onOpenSidebar: () => void;
 }
 
 export default function ChatArea({
@@ -32,6 +34,7 @@ export default function ChatArea({
   onSendMessage,
   onDeleteConversation,
   onRemoveFriend,
+  onOpenSidebar,
 }: ChatAreaProps) {
   const [inputText, setInputText] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -50,21 +53,32 @@ export default function ChatArea({
 
   if (!activeRoom) {
     return (
-      <div className="flex-1 bg-slate-900 flex flex-col items-center justify-center text-slate-400 p-8 text-center select-none">
-        <MessageSquare className="w-16 h-16 text-slate-700 mb-6" />
-        {isAdmin ? (
-          <>
-            <h3 className="text-lg font-bold text-slate-200">Welcome, Admin! 👋</h3>
-            <p className="text-sm text-slate-400 mt-2 max-w-sm leading-relaxed">
-              To start a private conversation with your friends, add a member using the <span className="text-indigo-400 font-semibold">+</span> button in the sidebar and chat privately.
-            </p>
-          </>
-        ) : (
-          <>
-            <h3 className="text-lg font-bold text-slate-300">No chat selected</h3>
-            <p className="text-sm text-slate-500 mt-1">Select a member from the sidebar to start chatting.</p>
-          </>
-        )}
+      <div className="flex-1 bg-slate-900 flex flex-col h-full overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-800/80 bg-slate-950/45 flex items-center gap-3 flex-shrink-0 md:hidden">
+          <button
+            onClick={onOpenSidebar}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-pointer transition-colors"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <span className="text-sm font-semibold text-slate-400">Ripple</span>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center select-none">
+          <MessageSquare className="w-16 h-16 text-slate-700 mb-6" />
+          {isAdmin ? (
+            <>
+              <h3 className="text-lg font-bold text-slate-200">Welcome, Admin! 👋</h3>
+              <p className="text-sm text-slate-400 mt-2 max-w-sm leading-relaxed">
+                To start a private conversation with your friends, add a member using the <span className="text-indigo-400 font-semibold">+</span> button in the sidebar and chat privately.
+              </p>
+            </>
+          ) : (
+            <>
+              <h3 className="text-lg font-bold text-slate-300">No chat selected</h3>
+              <p className="text-sm text-slate-500 mt-1">Select a member from the sidebar to start chatting.</p>
+            </>
+          )}
+        </div>
       </div>
     );
   }
@@ -196,19 +210,28 @@ export default function ChatArea({
   return (
     <div className="flex-1 bg-slate-900 flex flex-col h-full overflow-hidden relative">
       {/* Upper Active Room Info bar */}
-      <div className="px-6 py-4 border-b border-slate-800/80 bg-slate-950/45 flex items-center justify-between gap-4 flex-shrink-0 z-10">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            {isAIChat ? null : (
-              <span className="text-xl font-bold text-slate-500 leading-none">#</span>
-            )}
-            <h2 className="font-bold text-slate-100 truncate tracking-tight text-lg leading-tight">
-              {activeRoom.name}
-            </h2>
+      <div className="px-4 py-3 md:px-6 md:py-4 border-b border-slate-800/80 bg-slate-950/45 flex items-center justify-between gap-3 flex-shrink-0 z-10">
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Hamburger — mobile only */}
+          <button
+            onClick={onOpenSidebar}
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-pointer transition-colors flex-shrink-0"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              {isAIChat ? null : (
+                <span className="text-xl font-bold text-slate-500 leading-none">#</span>
+              )}
+              <h2 className="font-bold text-slate-100 truncate tracking-tight text-base md:text-lg leading-tight">
+                {activeRoom.name}
+              </h2>
+            </div>
+            <p className="text-xs text-slate-400 truncate mt-0.5 max-w-[200px] md:max-w-lg">
+              {activeRoom.description || "No description provided."}
+            </p>
           </div>
-          <p className="text-xs text-slate-400 truncate mt-0.5 max-w-lg">
-            {activeRoom.description || "No description provided."}
-          </p>
         </div>
 
         {/* Search Bar */}
@@ -312,7 +335,7 @@ export default function ChatArea({
       {/* Message Feed Area */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto px-6 py-6 space-y-6 scrollbar-thin scroll-smooth"
+        className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-6 space-y-6 scrollbar-thin scroll-smooth"
       >
         {filteredMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-500 text-center select-none py-12">

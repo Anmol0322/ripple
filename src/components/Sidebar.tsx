@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LogOut, Users, MessageSquare, UserPlus, X } from "lucide-react";
+import { LogOut, Users, MessageSquare, UserPlus, X, Menu } from "lucide-react";
 import { UserProfile } from "../types";
 import { RippleLogo } from "./RippleLogo";
 
@@ -13,6 +13,8 @@ interface SidebarProps {
   onAddMember: (nickname: string) => Promise<{ success: boolean; error?: string }>;
   isSyncing: boolean;
   lastSynced: Date | null;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
 export default function Sidebar({
@@ -24,6 +26,8 @@ export default function Sidebar({
   onLogout,
   onAddMember,
   isSyncing,
+  isOpen,
+  onClose,
 }: SidebarProps) {
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
@@ -63,7 +67,21 @@ export default function Sidebar({
   };
 
   return (
-    <aside className="w-72 h-full bg-slate-950 border-r border-slate-900 flex flex-col overflow-hidden">
+    <>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-40 md:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-72 h-full bg-slate-950 border-r border-slate-900 flex flex-col overflow-hidden
+        transition-transform duration-300 ease-in-out
+        ${isOpen ? "translate-x-0" : "-translate-x-full"}
+        md:relative md:translate-x-0 md:z-auto
+      `}>
       {/* Brand header */}
       <div className="p-4 border-b border-slate-900">
         <div className="flex items-center gap-2.5">
@@ -229,6 +247,7 @@ export default function Sidebar({
           </div>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

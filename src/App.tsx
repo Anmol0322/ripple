@@ -57,6 +57,7 @@ export default function App() {
   const [activeRoomId, setActiveRoomId] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Synchronizers & Loaders
 
@@ -749,7 +750,9 @@ export default function App() {
       {/* Sidebar Navigation */}
       <Sidebar
         activeRoomId={activeRoomId}
-        onSelectRoom={setActiveRoomId}
+        onSelectRoom={(id) => { setActiveRoomId(id); setSidebarOpen(false); }}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
         users={(() => {
           if (!user) return [];
           const dmRoomIds = [...new Set(messages
@@ -796,6 +799,7 @@ export default function App() {
         onSendMessage={handleSendMessage}
         onDeleteConversation={handleDeleteConversation}
         onRemoveFriend={handleRemoveFriend}
+        onOpenSidebar={() => setSidebarOpen(true)}
       />
 
 

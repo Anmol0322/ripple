@@ -1,0 +1,6 @@
+{
+  "name": "Ripple",
+  "description": "A collaborative chat application using Google Sheets as a database backend with real-time updates and an integrated Gemini AI assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

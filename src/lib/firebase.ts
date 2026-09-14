@@ -24,6 +24,9 @@ export const db = getFirestore(app);
 
 // Configure Google OAuth Provider
 export const provider = new GoogleAuthProvider();
+provider.setCustomParameters({
+  client_id: import.meta.env.VITE_FIREBASE_OAUTH_CLIENT_ID,
+});
 
 // In-memory access token cache
 let cachedAccessToken: string | null = null;
@@ -46,38 +49,38 @@ export const initAuth = (
   onAuthSuccess?: (user: any, token: string | null) => void,
   onAuthFailure?: () => void
 ) => {
-  // Check if there is a saved custom email session first
+  // Check custom nickname session first (regular users)
   const savedSession = sessionStorage.getItem("sheets_chat_custom_session");
   if (savedSession) {
     try {
       customSessionUser = JSON.parse(savedSession);
-      const savedToken = sessionStorage.getItem("sheets_chat_google_token");
-      if (onAuthSuccess) {
-        onAuthSuccess(customSessionUser, savedToken);
+      if (!customSessionUser?.isAdmin) {
+        // Regular nickname user — restore immediately
+        if (onAuthSuccess) onAuthSuccess(customSessionUser, null);
+        return () => {};
       }
-      // Return a dummy unsubscribe function
-      return () => {};
     } catch (e) {
       console.error("Failed to parse custom session:", e);
     }
   }
 
+  // For admin (Google OAuth) — rely on Firebase auth state
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        // No cached token but signed in. Check if we have a saved token
-        const savedToken = sessionStorage.getItem("sheets_chat_google_token");
-        if (savedToken) {
-          cachedAccessToken = savedToken;
-          if (onAuthSuccess) onAuthSuccess(user, savedToken);
-        } else {
-          cachedAccessToken = null;
-          if (onAuthFailure) onAuthFailure();
-        }
-      }
+      const savedToken = sessionStorage.getItem("sheets_chat_google_token");
+      cachedAccessToken = savedToken;
+      // Merge isAdmin flag onto Firebase user
+      const adminUser = Object.assign(Object.create(Object.getPrototypeOf(user)), user, { isAdmin: true });
+      if (onAuthSuccess) onAuthSuccess(adminUser, savedToken);
     } else {
+      // No Firebase user — check if we have a nickname session (admin case after page reload)
+      if (savedSession) {
+        try {
+          const parsed = JSON.parse(savedSession);
+          if (onAuthSuccess) onAuthSuccess(parsed, sessionStorage.getItem("sheets_chat_google_token"));
+          return;
+        } catch {}
+      }
       cachedAccessToken = null;
       if (onAuthFailure) onAuthFailure();
     }
@@ -185,11 +188,8 @@ export const nicknameSignIn = async (
   }
 };
 
-// Admin Sign-In: Google OAuth verification + nickname session
-export const adminSignIn = async (
-  nickname: string,
-  name: string
-): Promise<{ user: any; accessToken: string | null }> => {
+// Admin Sign-In: pure Google OAuth — uses real Firebase user
+export const adminSignIn = async (): Promise<{ user: any; accessToken: string | null }> => {
   isSigningIn = true;
   try {
     const result = await signInWithPopup(auth, provider);
@@ -197,7 +197,15 @@ export const adminSignIn = async (
     if (!credential?.accessToken) throw new Error("Failed to retrieve Google Access Token");
     cachedAccessToken = credential.accessToken;
     sessionStorage.setItem("sheets_chat_google_token", cachedAccessToken);
-    return await nicknameSignIn(nickname, name, true);
+    sessionStorage.removeItem("sheets_chat_custom_session");
+    const adminUser = Object.assign({}, result.user.toJSON(), {
+      uid: result.user.uid,
+      displayName: result.user.displayName,
+      email: result.user.email,
+      photoURL: result.user.photoURL,
+      isAdmin: true,
+    });
+    return { user: adminUser, accessToken: cachedAccessToken };
   } finally {
     isSigningIn = false;
   }

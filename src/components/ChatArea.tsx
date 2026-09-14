@@ -13,12 +13,13 @@ import {
   UserMinus,
   Menu,
 } from "lucide-react";
-import { Message, Room } from "../types";
+import { Message, Room, UserProfile } from "../types";
 
 interface ChatAreaProps {
   activeRoom: Room | null;
   messages: Message[];
   currentUserId: string;
+  allUsers: UserProfile[];
   isAdmin?: boolean;
   onSendMessage: (text: string, replyToId?: string) => Promise<void>;
   onDeleteConversation?: (roomId: string) => Promise<void>;
@@ -30,6 +31,7 @@ export default function ChatArea({
   activeRoom,
   messages,
   currentUserId,
+  allUsers,
   isAdmin,
   onSendMessage,
   onDeleteConversation,
@@ -229,7 +231,12 @@ export default function ChatArea({
               </h2>
             </div>
             <p className="text-xs text-slate-400 truncate mt-0.5 max-w-[200px] md:max-w-lg">
-              {activeRoom.description || "No description provided."}
+              {activeRoom.members && activeRoom.members.length > 0
+                ? activeRoom.members.map((id) => {
+                    const u = allUsers.find((u) => u.id === id);
+                    return u?.name || id.replace("usr-", "");
+                  }).join(", ")
+                : activeRoom.description || "No description provided."}
             </p>
           </div>
         </div>

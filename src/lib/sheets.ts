@@ -50,7 +50,10 @@ let cacheReadyResolvers: (() => void)[] = [];
 
 function waitForCache(): Promise<void> {
   if (cacheReady) return Promise.resolve();
-  return new Promise((resolve) => cacheReadyResolvers.push(resolve));
+  return Promise.race([
+    new Promise<void>((resolve) => cacheReadyResolvers.push(resolve)),
+    new Promise<void>((resolve) => setTimeout(resolve, 5000)), // 5s timeout fallback
+  ]);
 }
 
 function _bootListeners() {
@@ -148,6 +151,26 @@ export async function createRoom(
   return data;
 }
 
+export async function createGroupRoom(
+  createdBy: string,
+  name: string,
+  description: string,
+  memberIds: string[]
+): Promise<Room> {
+  const id = `room-${Math.random().toString(36).substring(2, 11)}`;
+  const members = [...new Set([createdBy, ...memberIds])];
+  const room: Room = {
+    id,
+    name,
+    description,
+    createdBy,
+    createdAt: new Date().toISOString(),
+    members,
+  };
+  await setDoc(doc(db, "rooms", id), room);
+  return room;
+}
+
 export async function updateUserPresence(
   _token: string | null,
   _sheetId: string,
@@ -173,4 +196,10 @@ export async function createDatabaseSheet(_token: string, title: string): Promis
 export async function deleteRoomMessages(roomId: string): Promise<void> {
   const snap = await getDocs(query(collection(db, "messages"), where("roomId", "==", roomId)));
   await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+}
+
+// Delete room doc + all its messages
+export async function deleteRoom(roomId: string): Promise<void> {
+  await deleteRoomMessages(roomId);
+  await deleteDoc(doc(db, "rooms", roomId));
 }

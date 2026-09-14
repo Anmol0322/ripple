@@ -16,6 +16,7 @@ export interface Room {
   description: string;
   createdBy: string;
   createdAt: string;
+  members?: string[];
 }
 
 export interface UserProfile {

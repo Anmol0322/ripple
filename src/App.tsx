@@ -14,6 +14,8 @@ import {
   startRealtimeListeners,
   rehydrateFromCache,
   deleteRoomMessages,
+  createGroupRoom,
+  deleteRoom,
 } from "./lib/sheets";
 import { Message, Room, UserProfile, SpreadsheetConfig } from "./types";
 
@@ -149,46 +151,22 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user?.uid]);
 
-  // Handle Admin Login: name + nickname + Google OAuth
+  // Handle Admin Login: Google OAuth only
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const nickname = adminNicknameInput.trim().toLowerCase();
-    const name = adminNameInput.trim().toLowerCase();
-    if (!nickname || !name) { setAuthError("Please enter your name and nickname."); return; }
-    if (!/^[a-z0-9@_]+$/.test(nickname)) { setAuthError("Nickname must only contain a-z, 0-9, @, and _."); return; }
-    if (!/^[a-zA-Z\s]+$/.test(name)) { setAuthError("Name must only contain alphabetic letters and spaces."); return; }
     setIsLoggingIn(true);
     setAuthError(null);
     try {
-      // Firestore check first — before opening Google popup
-      const existingUsers = await fetchUsers("PROXY", "firestore");
-      const existingUser = existingUsers.find((u) => u.id === "usr-" + nickname);
-      if (existingUser) {
-        if (existingUser.name.toLowerCase().trim() !== name) {
-          setAuthError(`Name doesn't match the nickname "${nickname}". Please check and try again.`);
-          setIsLoggingIn(false);
-          return;
-        }
-        if (!existingUser.isAdmin) {
-          setAuthError(`The nickname "${nickname}" is already registered as a regular user, not an admin.`);
-          setIsLoggingIn(false);
-          return;
-        }
-      }
-      // Firestore check passed — now open Google popup
-      const result = await adminSignIn(nickname, name);
-      // If new admin, save to Firestore
-      if (!existingUser) {
-        updateUserPresence("PROXY", "firestore", {
-          id: "usr-" + nickname,
-          name,
-          email: nickname,
-          photoUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(nickname)}`,
-          status: "online",
-          lastActive: new Date().toISOString(),
-          isAdmin: true,
-        });
-      }
+      const result = await adminSignIn();
+      updateUserPresence("PROXY", "firestore", {
+        id: result.user.uid,
+        name: result.user.displayName || "Admin",
+        email: result.user.email || "",
+        photoUrl: result.user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(result.user.email || "admin")}`,
+        status: "online",
+        lastActive: new Date().toISOString(),
+        isAdmin: true,
+      });
       setUser(result.user);
       setToken(result.accessToken);
       setNeedsAuth(false);
@@ -226,13 +204,9 @@ export default function App() {
     setIsLoggingIn(true);
     setAuthError(null);
 
-    // Show confirmation immediately without waiting for Firestore
-    const enteredName = nameInput.trim().toLowerCase();
-    setLoginConfirm({ type: "checking", name: enteredName, nickname, resolvedName: enteredName, isAdmin: false });
-    setIsLoggingIn(false);
-
-    // Check in background and update confirmation type
+    // Check Firestore first, then show confirmation
     fetchUsers("PROXY", "firestore").then((existingUsers) => {
+      const enteredName = nameInput.trim().toLowerCase();
       const existingUser = existingUsers.find((u) => u.id === "usr-" + nickname);
       if (existingUser) {
         if (existingUser.name.toLowerCase().trim() === enteredName) {
@@ -243,9 +217,16 @@ export default function App() {
       } else {
         setLoginConfirm({ type: "new-user", name: enteredName, nickname, resolvedName: enteredName, isAdmin: false });
       }
+      setIsLoggingIn(false);
     }).catch(() => {
+      const enteredName = nameInput.trim().toLowerCase();
       setLoginConfirm({ type: "new-user", name: enteredName, nickname, resolvedName: enteredName, isAdmin: false });
+      setIsLoggingIn(false);
     });
+
+    // Show checking screen immediately while Firestore loads
+    const enteredName = nameInput.trim().toLowerCase();
+    setLoginConfirm({ type: "checking", name: enteredName, nickname, resolvedName: enteredName, isAdmin: false });
   };
 
   const handleConfirmLogin = async (proceed: boolean) => {
@@ -255,7 +236,7 @@ export default function App() {
     setIsLoggingIn(true);
     try {
       if (type === "new-user" && spreadsheetConfig) {
-        updateUserPresence("PROXY", spreadsheetConfig.spreadsheetId, {
+        await updateUserPresence("PROXY", spreadsheetConfig.spreadsheetId, {
           id: "usr-" + nickname,
           name: resolvedName,
           email: nickname,
@@ -298,6 +279,30 @@ export default function App() {
     setAuthError(null);
   };
 
+  // Handle creating a group room
+  const handleCreateRoom = async (name: string, description: string, memberIds: string[]): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: "Not logged in." };
+    try {
+      const room = await createGroupRoom(user.uid, name, description, memberIds);
+      const welcomeMsg = {
+        id: `msg-${generateId()}`,
+        roomId: room.id,
+        userId: "system",
+        userName: "System",
+        userEmail: "",
+        userPhoto: "",
+        text: `👋 Welcome to #${name}! Say hi to everyone.`,
+        replyToId: "",
+      };
+      await postMessage(null, "firestore", welcomeMsg);
+      setActiveRoomId(room.id);
+      setSidebarOpen(false);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || "Failed to create room." };
+    }
+  };
+
   // Handle adding a member by nickname to open a DM
   const handleAddMember = async (nickname: string): Promise<{ success: boolean; error?: string }> => {
     if (!spreadsheetConfig) return { success: false, error: "No database connected." };
@@ -336,6 +341,12 @@ export default function App() {
     setActiveRoomId(dmRoomId);
     setUsers((prev) => prev.find((u) => u.id === targetId) ? prev : [...prev, found!]);
     return { success: true };
+  };
+
+  // Admin: remove room — wipe messages + delete room doc
+  const handleRemoveRoom = async (roomId: string) => {
+    await deleteRoom(roomId);
+    if (activeRoomId === roomId) setActiveRoomId("");
   };
 
   // Admin: delete conversation — wipe messages, post system notice, friend stays in sidebar
@@ -536,10 +547,10 @@ export default function App() {
                     <span>{item.text}</span>
                   </div>
                 ))}
-{/* <div className="flex items-center gap-2.5 mt-1 px-3 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 w-fit">
+<div className="flex items-center gap-2.5 mt-1 px-3 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 w-fit">
                   <span className="text-base leading-none">👑</span>
                   <span className="text-xs font-semibold text-indigo-400">Be an admin and join friends to your private conversations</span>
-                </div> */}
+                </div>
               </div>
             </div>
 
@@ -572,14 +583,13 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={(e) => e.preventDefault()}
-                  className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all cursor-not-allowed ${
+                  onClick={() => { setLoginMethod("google"); setAuthError(null); }}
+                  className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                     loginMethod === "google"
                       ? "bg-indigo-600 text-white shadow-lg"
                       : "text-slate-400 hover:text-slate-200"
                   } flex items-center justify-center gap-1.5`}
                 >
-                  <Lock className="w-3 h-3" />
                   Admin Login
                 </button>
               </div>
@@ -594,47 +604,11 @@ export default function App() {
               {loginMethod === "google" ? (
                 <form onSubmit={handleAdminLogin} className="space-y-4 text-left">
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    Enter your name and nickname, then verify with Google.
+                    Sign in with your Google account to access admin features.
                   </p>
-                  <div className="space-y-3.5">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Your Name</label>
-                      <input
-                        type="text"
-                        value={adminNameInput}
-                        onChange={(e) => {
-                          const val = e.target.value.toLowerCase().replace(/[^a-z\s]/g, "").slice(0, 30);
-                          setAdminNameInput(val);
-                        }}
-                        onPaste={(e) => e.preventDefault()}
-                        placeholder="Enter your name (lowercase)"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all"
-                        required
-                      />
-                      {isAdminNameInvalid && (
-                        <p className="text-[10px] text-rose-500 mt-1.5">⚠️ Name must only contain alphabetic letters and spaces.</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nickname</label>
-                      <input
-                        type="text"
-                        value={adminNicknameInput}
-                        onChange={(e) => { setAdminNicknameInput(e.target.value.replace(/[^a-z0-9@_]/g, "")); setAuthError(null); }}
-                        onPaste={(e) => e.preventDefault()}
-                        placeholder="Enter your nickname"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
-                        required
-                      />
-                      {isAdminNicknameInvalid && (
-                        <p className="text-[10px] text-rose-500 mt-1.5">⚠️ Only small-case letters, numbers, @, and _ are allowed.</p>
-                      )}
-                    </div>
-                  </div>
-
                   <button
                     type="submit"
-                    disabled={isLoggingIn || !adminNicknameInput.trim() || !adminNameInput.trim() || isAdminNicknameInvalid || isAdminNameInvalid}
+                    disabled={isLoggingIn}
                     className="w-full flex items-center justify-center gap-3.5 py-3 px-4 rounded-xl font-bold text-sm bg-white hover:bg-slate-50 text-slate-900 shadow-xl border border-slate-200 cursor-pointer disabled:bg-slate-800 disabled:text-slate-600 disabled:border-slate-900 disabled:cursor-not-allowed transition-all hover:scale-[1.01] active:scale-[0.99] mt-2"
                   >
                     {isLoggingIn ? (
@@ -651,7 +625,7 @@ export default function App() {
                           <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
                           <path fill="none" d="M0 0h48v48H0z" />
                         </svg>
-                        <span>Verify with Google</span>
+                        <span>Continue with Google</span>
                       </>
                     )}
                   </button>
@@ -753,6 +727,13 @@ export default function App() {
         onSelectRoom={(id) => { setActiveRoomId(id); setSidebarOpen(false); }}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        rooms={rooms}
+        isAdmin={user?.isAdmin || false}
+        onCreateRoom={handleCreateRoom}
+        onDeleteConversation={handleDeleteConversation}
+        onRemoveRoom={handleRemoveRoom}
+        onRemoveMember={handleRemoveFriend}
+        allUsers={users}
         users={(() => {
           if (!user) return [];
           const dmRoomIds = [...new Set(messages
@@ -761,10 +742,10 @@ export default function App() {
           )];
           return dmRoomIds.map((roomId) => {
             // Extract other user ID directly from room ID — format: dm-{uid1}-{uid2} where uids start with usr-
-            const withoutPrefix = roomId.slice(3); // remove "dm-"
+            const withoutPrefix = (roomId as string).slice(3); // remove "dm-"
             const otherUserId = withoutPrefix.startsWith(user.uid)
               ? withoutPrefix.slice(user.uid.length + 1)
-              : withoutPrefix.slice(0, withoutPrefix.length - user.uid.length - 1);
+              : withoutPrefix.slice(0, withoutPrefix.length - (user.uid as string).length - 1);
             if (!otherUserId) return null;
             const fromUsers = users.find((u) => u.id === otherUserId);
             const fromMsg = messages.find((m) => m.roomId === roomId && m.userId === otherUserId);
@@ -795,6 +776,7 @@ export default function App() {
         activeRoom={activeRoomObj}
         messages={messages}
         currentUserId={user?.uid || ""}
+        allUsers={users}
         isAdmin={user?.isAdmin || false}
         onSendMessage={handleSendMessage}
         onDeleteConversation={handleDeleteConversation}
